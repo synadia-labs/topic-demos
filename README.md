@@ -34,23 +34,9 @@ After starting, a NATS CLI context is automatically saved and selected so `nats`
 
 ## Demos
 
-### Delayed Message Scheduling
-
-**`cmd/delayed-message-scheduling/`** — NATS JetStream Message Scheduler (requires nats-server 2.14+)
-
-Demonstrates server-side deferred delivery without client-side polling or timers:
-
-- **One-shot delay** (`@at <RFC3339>`) — deliver a message at an exact future time
-- **Recurring schedule** (`@every <duration>`) — repeat delivery on a fixed interval
-- **Subject sampling** — periodically re-publish the latest value from a high-frequency subject (data reduction)
-- **Schedule cancellation** — purge a schedule subject to stop delivery
-
-```bash
-task server:single
-go run ./cmd/delayed-message-scheduling
-```
-
-For a step-by-step CLI walkthrough, see [`cmd/delayed-message-scheduling/demo/README.md`](cmd/delayed-message-scheduling/demo/README.md). For a quick reference card, see [`QUICK.md`](cmd/delayed-message-scheduling/demo/QUICK.md).
+| Demo | Topic | Docs |
+|---|---|---|
+| [`delayed-message-scheduling`](cmd/delayed-message-scheduling/) | JetStream Message Scheduler — deferred and recurring delivery | [README](cmd/delayed-message-scheduling/README.md) |
 
 ## Repo Layout
 

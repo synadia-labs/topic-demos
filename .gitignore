@@ -12,5 +12,8 @@
 /server/logs/
 /server/.pids
 
-# Built binaries (go build output at repo root)
-/cmd/*/
+# Built Go binaries (produced by 'go build ./cmd/...')
+/cmd/hello/hello
+/cmd/hello/hello.exe
+/cmd/delayed-message-scheduling/delayed-message-scheduling
+/cmd/delayed-message-scheduling/delayed-message-scheduling.exe
