@@ -57,6 +57,10 @@ tasks:
           rm "$PID_FILE"
         fi
         pkill -f "nats-server" 2>/dev/null || true
+        for i in $(seq 1 10); do
+          pgrep -f "nats-server" > /dev/null 2>&1 || break
+          sleep 0.2
+        done
         echo "All servers stopped."
 
   server:_wipe:
