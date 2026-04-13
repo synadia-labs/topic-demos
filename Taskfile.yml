@@ -55,16 +55,27 @@ tasks:
         if [ -f "$PID_FILE" ]; then
           while read -r pid; do kill "$pid" 2>/dev/null || true; done < "$PID_FILE"
           rm "$PID_FILE"
-          echo "All servers stopped."
-        else
-          echo "No servers running."
         fi
+        pkill -f "nats-server" 2>/dev/null || true
+        echo "All servers stopped."
 
   server:_wipe:
     internal: true
     cmds:
       - rm -rf {{.SERVER_DIR}}/data
       - echo "Data wiped."
+
+  # ── Internal: context helpers ───────────────────────────────────────────────
+
+  nats:_context:
+    internal: true
+    desc: Save and select a NATS CLI context
+    requires:
+      vars: [CONTEXT_NAME, CONTEXT_URL]
+    cmds:
+      - nats context save {{.CONTEXT_NAME}} --server {{.CONTEXT_URL}}
+      - nats context select {{.CONTEXT_NAME}}
+      - echo "NATS context '{{.CONTEXT_NAME}}' active ({{.CONTEXT_URL}})"
 
   # ── Single node ─────────────────────────────────────────────────────────────
 
@@ -79,6 +90,8 @@ tasks:
         echo $! > .pids
       - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8222/healthz > /dev/null
       - echo "Single server healthy (port 4222)"
+      - task: nats:_context
+        vars: { CONTEXT_NAME: single, CONTEXT_URL: "nats://sys:sys@localhost:4222" }
 
   # ── 3-node cluster ──────────────────────────────────────────────────────────
 
@@ -99,6 +112,8 @@ tasks:
       - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8223/healthz > /dev/null
       - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8224/healthz > /dev/null
       - echo "3-node cluster healthy (ports 4222-4224)"
+      - task: nats:_context
+        vars: { CONTEXT_NAME: cluster, CONTEXT_URL: "nats://sys:sys@localhost:4222,nats://sys:sys@localhost:4223,nats://sys:sys@localhost:4224" }
 
   # ── Supercluster ────────────────────────────────────────────────────────────
 
@@ -153,6 +168,8 @@ tasks:
       - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9005/healthz > /dev/null
       - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9006/healthz > /dev/null
       - echo "All 16 servers healthy and running!"
+      - task: nats:_context
+        vars: { CONTEXT_NAME: super, CONTEXT_URL: "nats://sys:sys@localhost:4222,nats://sys:sys@localhost:4223,nats://sys:sys@localhost:4224" }
 
   # ── Stop / wipe / reset ─────────────────────────────────────────────────────
 
