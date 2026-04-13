@@ -1,0 +1,224 @@
+version: '3'
+
+vars:
+  NATS_VERSION: 2.12.2
+  SERVER_DIR: '{{.ROOT_DIR}}/server'
+  BIN: '{{.SERVER_DIR}}/bin/{{.NATS_VERSION}}/nats-server'
+
+tasks:
+
+  # ── Internal: binary management ─────────────────────────────────────────────
+
+  server:download:
+    internal: true
+    desc: Download nats-server binary if not present
+    status:
+      - test -f {{.BIN}}
+    cmds:
+      - |
+        VERSION={{.NATS_VERSION}}
+        BIN_DIR={{.SERVER_DIR}}/bin/${VERSION}
+
+        case "$(uname -s)" in
+          Darwin*) OS="darwin" ;;
+          Linux*)  OS="linux"  ;;
+          *) echo "Unsupported OS: $(uname -s)"; exit 1 ;;
+        esac
+
+        case "$(uname -m)" in
+          x86_64)        ARCH="amd64" ;;
+          aarch64|arm64) ARCH="arm64" ;;
+          *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+        esac
+
+        RELEASE="nats-server-v${VERSION}-${OS}-${ARCH}"
+        URL="https://github.com/nats-io/nats-server/releases/download/v${VERSION}/${RELEASE}.tar.gz"
+
+        echo "Downloading nats-server v${VERSION} for ${OS}-${ARCH}..."
+        mkdir -p "$BIN_DIR"
+        TMP=$(mktemp)
+        TMP_DIR=$(mktemp -d)
+        curl -L --fail --silent --show-error -o "$TMP" "$URL"
+        tar -xzf "$TMP" -C "$TMP_DIR"
+        mv "$TMP_DIR"/*/nats-server "$BIN_DIR/nats-server"
+        chmod +x "$BIN_DIR/nats-server"
+        rm -rf "$TMP" "$TMP_DIR"
+        echo "nats-server v${VERSION} ready."
+
+  # ── Internal: stop + wipe helpers ───────────────────────────────────────────
+
+  server:_stop:
+    internal: true
+    cmds:
+      - |
+        PID_FILE={{.SERVER_DIR}}/.pids
+        if [ -f "$PID_FILE" ]; then
+          while read -r pid; do kill "$pid" 2>/dev/null || true; done < "$PID_FILE"
+          rm "$PID_FILE"
+          echo "All servers stopped."
+        else
+          echo "No servers running."
+        fi
+
+  server:_wipe:
+    internal: true
+    cmds:
+      - rm -rf {{.SERVER_DIR}}/data
+      - echo "Data wiped."
+
+  # ── Single node ─────────────────────────────────────────────────────────────
+
+  server:single:
+    desc: "Start single-node NATS server (port 4222)"
+    deps: [server:download]
+    dir: '{{.SERVER_DIR}}'
+    cmds:
+      - mkdir -p logs data
+      - |
+        ./bin/{{.NATS_VERSION}}/nats-server -c conf/single/server.conf > logs/single.log 2>&1 &
+        echo $! > .pids
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8222/healthz > /dev/null
+      - echo "Single server healthy (port 4222)"
+
+  # ── 3-node cluster ──────────────────────────────────────────────────────────
+
+  server:cluster:
+    desc: "Start 3-node JetStream cluster (ports 4222-4224)"
+    deps: [server:download]
+    dir: '{{.SERVER_DIR}}'
+    cmds:
+      - mkdir -p logs data
+      - |
+        ./bin/{{.NATS_VERSION}}/nats-server -c conf/cluster/n1.conf > logs/n1.log 2>&1 &
+        echo $! >> .pids
+        ./bin/{{.NATS_VERSION}}/nats-server -c conf/cluster/n2.conf > logs/n2.log 2>&1 &
+        echo $! >> .pids
+        ./bin/{{.NATS_VERSION}}/nats-server -c conf/cluster/n3.conf > logs/n3.log 2>&1 &
+        echo $! >> .pids
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8222/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8223/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8224/healthz > /dev/null
+      - echo "3-node cluster healthy (ports 4222-4224)"
+
+  # ── Supercluster ────────────────────────────────────────────────────────────
+
+  server:super:
+    desc: "Start full supercluster — 3 clusters × 3 nodes + 7 leaf nodes (16 servers)"
+    deps: [server:download]
+    dir: '{{.SERVER_DIR}}'
+    cmds:
+      - mkdir -p logs data
+      - |
+        BIN=./bin/{{.NATS_VERSION}}/nats-server
+
+        echo "Starting Cluster 1..."
+        $BIN -c conf/super/c1-n1.conf > logs/c1-n1.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c1-n2.conf > logs/c1-n2.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c1-n3.conf > logs/c1-n3.log 2>&1 & echo $! >> .pids
+
+        echo "Starting Cluster 2..."
+        $BIN -c conf/super/c2-n1.conf > logs/c2-n1.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c2-n2.conf > logs/c2-n2.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c2-n3.conf > logs/c2-n3.log 2>&1 & echo $! >> .pids
+
+        echo "Starting Cluster 3..."
+        $BIN -c conf/super/c3-n1.conf > logs/c3-n1.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c3-n2.conf > logs/c3-n2.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c3-n3.conf > logs/c3-n3.log 2>&1 & echo $! >> .pids
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8222/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8223/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8224/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8225/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8226/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8227/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8228/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8229/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8230/healthz > /dev/null
+      - echo "All 9 core nodes healthy. Starting leaf nodes..."
+      - |
+        BIN=./bin/{{.NATS_VERSION}}/nats-server
+
+        $BIN -c conf/super/c1-l1.conf > logs/c1-l1.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c1-l2.conf > logs/c1-l2.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c3-l1.conf > logs/c3-l1.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c3-l2.conf > logs/c3-l2.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c3-l3.conf > logs/c3-l3.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c3-l4.conf > logs/c3-l4.log 2>&1 & echo $! >> .pids
+        $BIN -c conf/super/c3-l5.conf > logs/c3-l5.log 2>&1 & echo $! >> .pids
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9000/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9001/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9002/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9003/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9004/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9005/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9006/healthz > /dev/null
+      - echo "All 16 servers healthy and running!"
+
+  # ── Stop / wipe / reset ─────────────────────────────────────────────────────
+
+  server:stop:
+    desc: "Stop all running NATS servers"
+    cmds:
+      - task: server:_stop
+
+  server:wipe:
+    desc: "Stop servers and delete all data"
+    cmds:
+      - task: server:_stop
+      - task: server:_wipe
+
+  server:reset:single:
+    desc: "Wipe data and restart single-node server"
+    cmds:
+      - task: server:_stop
+      - task: server:_wipe
+      - task: server:single
+
+  server:reset:cluster:
+    desc: "Wipe data and restart 3-node cluster"
+    cmds:
+      - task: server:_stop
+      - task: server:_wipe
+      - task: server:cluster
+
+  server:reset:super:
+    desc: "Wipe data and restart full supercluster"
+    cmds:
+      - task: server:_stop
+      - task: server:_wipe
+      - task: server:super
+
+  # ── Status ──────────────────────────────────────────────────────────────────
+
+  server:status:
+    desc: "Show health of all known server endpoints"
+    cmds:
+      - |
+        check() {
+          local label=$1 url=$2
+          if curl --fail --silent --max-time 1 "$url" > /dev/null 2>&1; then
+            echo "  ✓ $label"
+          else
+            echo "  ✗ $label (not responding)"
+          fi
+        }
+        echo "Single / Cluster 1:"
+        check "port 4222 (http 8222)" http://localhost:8222/healthz
+        check "port 4223 (http 8223)" http://localhost:8223/healthz
+        check "port 4224 (http 8224)" http://localhost:8224/healthz
+        echo "Cluster 2:"
+        check "port 4225 (http 8225)" http://localhost:8225/healthz
+        check "port 4226 (http 8226)" http://localhost:8226/healthz
+        check "port 4227 (http 8227)" http://localhost:8227/healthz
+        echo "Cluster 3:"
+        check "port 4228 (http 8228)" http://localhost:8228/healthz
+        check "port 4229 (http 8229)" http://localhost:8229/healthz
+        check "port 4230 (http 8230)" http://localhost:8230/healthz
+        echo "Leaf nodes:"
+        check "c1-l1 (http 9000)" http://localhost:9000/healthz
+        check "c1-l2 (http 9001)" http://localhost:9001/healthz
+        check "c3-l1 (http 9002)" http://localhost:9002/healthz
+        check "c3-l2 (http 9003)" http://localhost:9003/healthz
+        check "c3-l3 (http 9004)" http://localhost:9004/healthz
+        check "c3-l4 (http 9005)" http://localhost:9005/healthz
+        check "c3-l5 (http 9006)" http://localhost:9006/healthz

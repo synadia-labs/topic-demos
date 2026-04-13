@@ -1,0 +1,13 @@
+# Binaries
+/bin/
+*.exe
+*.out
+
+# Go build cache
+/vendor/
+
+# NATS server
+/server/bin/
+/server/data/
+/server/logs/
+/server/.pids
