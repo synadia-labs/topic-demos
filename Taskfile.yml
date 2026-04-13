@@ -92,7 +92,7 @@ tasks:
       - |
         ./bin/{{.NATS_VERSION}}/nats-server -c conf/single/server.conf > logs/single.log 2>&1 &
         echo $! > .pids
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8222/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8222/healthz > /dev/null
       - echo "Single server healthy (port 4222)"
       - task: nats:_context
         vars: { CONTEXT_NAME: single, CONTEXT_URL: "nats://sys:sys@localhost:4222" }
@@ -112,9 +112,9 @@ tasks:
         echo $! >> .pids
         ./bin/{{.NATS_VERSION}}/nats-server -c conf/cluster/n3.conf > logs/n3.log 2>&1 &
         echo $! >> .pids
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8222/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8223/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8224/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8222/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8223/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8224/healthz > /dev/null
       - echo "3-node cluster healthy (ports 4222-4224)"
       - task: nats:_context
         vars: { CONTEXT_NAME: cluster, CONTEXT_URL: "nats://sys:sys@localhost:4222,nats://sys:sys@localhost:4223,nats://sys:sys@localhost:4224" }
@@ -144,15 +144,15 @@ tasks:
         $BIN -c conf/super/c3-n1.conf > logs/c3-n1.log 2>&1 & echo $! >> .pids
         $BIN -c conf/super/c3-n2.conf > logs/c3-n2.log 2>&1 & echo $! >> .pids
         $BIN -c conf/super/c3-n3.conf > logs/c3-n3.log 2>&1 & echo $! >> .pids
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8222/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8223/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8224/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8225/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8226/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8227/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8228/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8229/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:8230/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8222/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8223/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8224/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8225/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8226/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8227/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8228/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8229/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8230/healthz > /dev/null
       - echo "All 9 core nodes healthy. Starting leaf nodes..."
       - |
         BIN=./bin/{{.NATS_VERSION}}/nats-server
@@ -164,13 +164,13 @@ tasks:
         $BIN -c conf/super/c3-l3.conf > logs/c3-l3.log 2>&1 & echo $! >> .pids
         $BIN -c conf/super/c3-l4.conf > logs/c3-l4.log 2>&1 & echo $! >> .pids
         $BIN -c conf/super/c3-l5.conf > logs/c3-l5.log 2>&1 & echo $! >> .pids
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9000/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9001/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9002/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9003/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9004/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9005/healthz > /dev/null
-      - curl --fail --silent --retry 10 --retry-delay 1 http://localhost:9006/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9000/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9001/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9002/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9003/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9004/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9005/healthz > /dev/null
+      - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9006/healthz > /dev/null
       - echo "All 16 servers healthy and running!"
       - task: nats:_context
         vars: { CONTEXT_NAME: super, CONTEXT_URL: "nats://sys:sys@localhost:4222,nats://sys:sys@localhost:4223,nats://sys:sys@localhost:4224" }
