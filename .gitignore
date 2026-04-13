@@ -11,3 +11,6 @@
 /server/data/
 /server/logs/
 /server/.pids
+
+# Built binaries (go build output at repo root)
+/cmd/*/
