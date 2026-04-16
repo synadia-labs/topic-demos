@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NATS JetStream Benchmark Results</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #27aae1;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .file-upload {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .file-upload input[type="file"] {
+            display: none;
+        }
+
+        .file-upload label {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #27aae1;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .file-upload label:hover {
+            background: #1e8bb8;
+        }
+
+        .file-info {
+            margin-top: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .chart-wrapper {
+            background: white;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+        }
+
+        .chart-wrapper h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 20px;
+            text-align: center;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
+            font-size: 14px;
+        }
+
+        thead {
+            background: #27aae1;
+            color: white;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        th {
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+
+        tbody tr:hover {
+            background: #f9f9f9;
+        }
+
+        tbody tr:nth-child(even) {
+            background: #fafafa;
+        }
+
+        tbody tr:nth-child(even):hover {
+            background: #f5f5f5;
+        }
+
+        .size-header {
+            background: #27aae1 !important;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            font-size: 15px;
+        }
+
+        .size-header:hover {
+            background: #1e8bb8 !important;
+        }
+
+        .sync-mode {
+            color: #ff6b6b;
+            font-weight: 600;
+        }
+
+        .async-mode {
+            color: #51cf66;
+            font-weight: 600;
+        }
+
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .comparison-table {
+            margin-top: 30px;
+        }
+
+        .comparison-table h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .speedup {
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .slowdown {
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NATS JetStream Benchmark Results</h1>
+        <p class="subtitle">Interactive visualization of sync vs async persistence performance</p>
+
+        <div class="file-upload">
+            <input type="file" id="fileInput" accept=".txt,.log">
+            <label for="fileInput">Choose Benchmark Log File</label>
+            <div class="file-info" id="fileInfo">No file selected. Use the parser output or raw log file.</div>
+        </div>
+
+        <div id="content" class="hidden">
+            <div class="stats-summary" id="statsSummary"></div>
+
+            <div class="charts-container">
+                <div class="chart-wrapper">
+                    <h2>Messages per Second by Message Size</h2>
+                    <div class="chart-container">
+                        <canvas id="msgsChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-wrapper">
+                    <h2>Bytes per Second by Message Size</h2>
+                    <div class="chart-container">
+                        <canvas id="bytesChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comparison-table">
+                <h2>Detailed Results</h2>
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>Message Size (bytes)</th>
+                            <th>Flush Type</th>
+                            <th>Sync Msgs/sec</th>
+                            <th>Async Msgs/sec</th>
+                            <th>Sync Throughput</th>
+                            <th>Async Throughput</th>
+                            <th>Diff (Throughput)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let benchmarkData = [];
+        let msgsChart = null;
+        let bytesChart = null;
+
+        // Parse the benchmark output (same logic as Go parser)
+        function parseBenchmarkOutput(content) {
+            const lines = content.split('\n');
+            const results = [];
+
+            let currentSize = null;
+            let currentPersistMode = null;
+            let currentFlushType = null;
+
+            const sizePattern = /^Size:\s+(\d+)/;
+            const persistPattern = /^(Sync|Async)\s+Flush:\s+Batch\s+(\d+)/;
+            const statsPattern = /NATS JetStream (?:synchronous|asynchronous) publisher stats:\s+([\d,]+)\s+msgs\/sec\s+~\s+([\d.]+)\s+(\w+)\/sec/;
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+
+                let match = trimmed.match(sizePattern);
+                if (match) {
+                    currentSize = parseInt(match[1]);
+                    continue;
+                }
+
+                match = trimmed.match(persistPattern);
+                if (match) {
+                    currentPersistMode = match[1].toLowerCase();
+                    currentBatchSize = match[2].toLowerCase();
+                    continue;
+                }
+
+                match = trimmed.match(statsPattern);
+                if (match && currentSize !== null && currentPersistMode !== null && currentBatchSize !== null) {
+                    const msgsPerSec = parseInt(match[1].replace(/,/g, ''));
+                    const bytesValue = parseFloat(match[2]);
+                    const bytesUnit = match[3];
+                    const bytesMultiplier = parseUnit(bytesUnit);
+                    const bytesPerSec = bytesValue * bytesMultiplier;
+
+                    results.push({
+                        size: currentSize,
+                        persistMode: currentPersistMode,
+                        batchSize: currentBatchSize,
+                        msgsPerSec: msgsPerSec,
+                        bytesPerSec: bytesPerSec,
+                        bytesPerSecFormatted: `${bytesValue} ${bytesUnit}/sec`
+                    });
+                }
+            }
+
+            return results;
+        }
+
+        function parseUnit(unitStr) {
+            // Check in order from largest to smallest to avoid partial matches
+            if (unitStr.includes('GiB')) return 1024 * 1024 * 1024;
+            if (unitStr.includes('MiB')) return 1024 * 1024;
+            if (unitStr.includes('KiB')) return 1024;
+            if (unitStr.includes('B')) return 1;
+            return 1;
+        }
+
+        function formatBytes(bytes) {
+            if (bytes >= 1024 * 1024 * 1024) {
+                return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB/sec`;
+            } else if (bytes >= 1024 * 1024) {
+                return `${(bytes / (1024 * 1024)).toFixed(1)} MiB/sec`;
+            } else if (bytes >= 1024) {
+                return `${(bytes / 1024).toFixed(1)} KiB/sec`;
+            }
+            return `${bytes.toFixed(1)} B/sec`;
+        }
+
+        function formatNumber(num) {
+            return num.toLocaleString();
+        }
+
+        function createCharts() {
+            const sizes = [...new Set(benchmarkData.map(d => d.size))].sort((a, b) => a - b);
+
+            // Group by persist mode and flush type
+            const datasets = {};
+            benchmarkData.forEach(d => {
+                const key = `${d.persistMode}_${d.batchSize}`;
+                if (!datasets[key]) {
+                    datasets[key] = {
+                        label: `${d.persistMode === 'sync' ? 'Sync' : 'Async'} - ${formatBatchSize(d.batchSize)}`,
+                        data: [],
+                        persistMode: d.persistMode,
+                        batchSize: d.batchSize
+                    };
+                }
+            });
+
+            // Fill in data for each size
+            sizes.forEach(size => {
+                Object.keys(datasets).forEach(key => {
+                    const match = benchmarkData.find(d =>
+                        d.size === size && `${d.persistMode}_${d.batchSize}` === key
+                    );
+                    datasets[key].data.push(match ? match.msgsPerSec : null);
+                });
+            });
+
+            // Assign colors
+            const colors = [
+                { border: '#ff6b6b', bg: 'rgba(255, 107, 107, 0.1)' },  // Sync sync_flush
+                { border: '#ff8787', bg: 'rgba(255, 135, 135, 0.1)' },  // Sync async_batch_100
+                { border: '#ffa8a8', bg: 'rgba(255, 168, 168, 0.1)' },  // Sync async_batch_500
+                { border: '#51cf66', bg: 'rgba(81, 207, 102, 0.1)' },   // Async sync_flush
+                { border: '#69db7c', bg: 'rgba(105, 219, 124, 0.1)' },  // Async async_batch_100
+                { border: '#8ce99a', bg: 'rgba(140, 233, 154, 0.1)' },  // Async async_batch_500
+            ];
+
+            let colorIndex = 0;
+            const chartDatasets = Object.values(datasets).map(ds => {
+                const color = colors[colorIndex++ % colors.length];
+                return {
+                    label: ds.label,
+                    data: ds.data,
+                    borderColor: color.border,
+                    backgroundColor: color.bg,
+                    borderWidth: 2,
+                    tension: 0.1,
+                    fill: true
+                };
+            });
+
+            // Messages per second chart
+            const msgsCtx = document.getElementById('msgsChart').getContext('2d');
+            if (msgsChart) msgsChart.destroy();
+            msgsChart = new Chart(msgsCtx, {
+                type: 'line',
+                data: {
+                    labels: sizes,
+                    datasets: chartDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${formatNumber(context.parsed.y)} msgs/sec`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Message Size (bytes)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Messages per Second'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return formatNumber(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Bytes per second chart
+            const bytesDatasets = Object.entries(datasets).map(([key, ds], idx) => {
+                const bytesData = sizes.map(size => {
+                    const match = benchmarkData.find(d =>
+                        d.size === size && `${d.persistMode}_${d.batchSize}` === key
+                    );
+                    return match ? match.bytesPerSec : null;
+                });
+                const color = colors[idx % colors.length];
+                return {
+                    label: ds.label,
+                    data: bytesData,
+                    borderColor: color.border,
+                    backgroundColor: color.bg,
+                    borderWidth: 2,
+                    tension: 0.1,
+                    fill: true
+                };
+            });
+
+            const bytesCtx = document.getElementById('bytesChart').getContext('2d');
+            if (bytesChart) bytesChart.destroy();
+            bytesChart = new Chart(bytesCtx, {
+                type: 'line',
+                data: {
+                    labels: sizes,
+                    datasets: bytesDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${formatBytes(context.parsed.y)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Message Size (bytes)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Bytes per Second'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return formatBytes(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function formatBatchSize(type) {
+            return `Batch ${type}`;
+        }
+
+        function populateTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            // Group data by message size and batch size
+            const sizes = [...new Set(benchmarkData.map(d => d.size))].sort((a, b) => a - b);
+            const batchSizes = [...new Set(benchmarkData.map(d => d.batchSize))].sort();
+
+            sizes.forEach(size => {
+                // Add size header row
+                const headerRow = document.createElement('tr');
+                headerRow.className = 'size-header';
+                headerRow.innerHTML = `<td colspan="7">Message Size: ${formatNumber(size)} bytes</td>`;
+                tbody.appendChild(headerRow);
+
+                // Add rows for each batch size
+                batchSizes.forEach(batchSize => {
+                    const syncRow = benchmarkData.find(d =>
+                        d.size === size && d.persistMode === 'sync' && d.batchSize === batchSize
+                    );
+                    const asyncRow = benchmarkData.find(d =>
+                        d.size === size && d.persistMode === 'async' && d.batchSize === batchSize
+                    );
+
+                    // Only create row if we have at least one of sync or async
+                    if (!syncRow && !asyncRow) return;
+
+                    // Calculate diffs (async relative to sync)
+                    let throughputDiff = '-';
+
+                    if (syncRow && asyncRow) {
+                        const throughputDiffValue = ((asyncRow.msgsPerSec / syncRow.msgsPerSec) * 100 - 100).toFixed(1);
+                        const throughputDiffClass = throughputDiffValue >= 0 ? 'speedup' : 'slowdown';
+                        const throughputDiffSign = throughputDiffValue >= 0 ? '+' : '';
+                        throughputDiff = `<span class="${throughputDiffClass}">${throughputDiffSign}${throughputDiffValue}%</span>`;
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${formatNumber(size)}</td>
+                        <td>${formatBatchSize(batchSize)}</td>
+                        <td>${syncRow ? formatNumber(syncRow.msgsPerSec) : '-'}</td>
+                        <td>${asyncRow ? formatNumber(asyncRow.msgsPerSec) : '-'}</td>
+                        <td>${syncRow ? syncRow.bytesPerSecFormatted : '-'}</td>
+                        <td>${asyncRow ? asyncRow.bytesPerSecFormatted : '-'}</td>
+                        <td>${throughputDiff}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            });
+        }
+
+        function createStatsSummary() {
+            const container = document.getElementById('statsSummary');
+            container.innerHTML = '';
+
+            const maxMsgs = Math.max(...benchmarkData.map(d => d.msgsPerSec));
+            const maxBytes = Math.max(...benchmarkData.map(d => d.bytesPerSec));
+            const totalTests = benchmarkData.length;
+            const uniqueSizes = new Set(benchmarkData.map(d => d.size)).size;
+
+            const stats = [
+                { title: 'Peak Messages/sec', value: formatNumber(maxMsgs) },
+                { title: 'Peak Throughput', value: formatBytes(maxBytes) },
+                { title: 'Total Tests', value: totalTests },
+                { title: 'Message Sizes', value: uniqueSizes }
+            ];
+
+            stats.forEach(stat => {
+                const card = document.createElement('div');
+                card.className = 'stat-card';
+                card.innerHTML = `
+                    <h3>${stat.title}</h3>
+                    <div class="value">${stat.value}</div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function processData(data) {
+            benchmarkData = data;
+            document.getElementById('content').classList.remove('hidden');
+            createStatsSummary();
+            createCharts();
+            populateTable();
+        }
+
+        // File upload handler
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fileInfo').textContent = `Loading ${file.name}...`;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const content = event.target.result;
+
+                // Try to parse as JSON first (if it's already parsed data)
+                try {
+                    const data = JSON.parse(content);
+                    processData(data);
+                    document.getElementById('fileInfo').textContent = `Loaded ${file.name} (${data.length} results)`;
+                } catch (e) {
+                    // Otherwise parse as raw log file
+                    const data = parseBenchmarkOutput(content);
+                    if (data.length > 0) {
+                        processData(data);
+                        document.getElementById('fileInfo').textContent = `Parsed ${file.name} (${data.length} results)`;
+                    } else {
+                        document.getElementById('fileInfo').textContent = `Error: No benchmark data found in ${file.name}`;
+                    }
+                }
+            };
+            reader.readAsText(file);
+        });
+    </script>
+</body>
+</html>

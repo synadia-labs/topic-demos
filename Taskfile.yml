@@ -1,8 +1,9 @@
 version: '3'
 
 vars:
+  VERSION: main
   SERVER_DIR: '{{.ROOT_DIR}}/server'
-  BIN: '{{.SERVER_DIR}}/bin/nats-server'
+  BIN: '{{.SERVER_DIR}}/bin/{{.VERSION}}/nats-server'
 
 tasks:
 
@@ -12,12 +13,25 @@ tasks:
     internal: true
     silent: true
     desc: Download nats-server binary if not present
+    status:
+      - test -f {{.BIN}}
     cmds:
       - |
-        mkdir -p {{.SERVER_DIR}}/bin
-        echo "Downloading nats-server @main..."
-        curl -fsSL https://binaries.nats.dev/nats-io/nats-server/v2@main | PREFIX={{.SERVER_DIR}}/bin sh
-        echo "nats-server @main ready."
+        mkdir -p {{.SERVER_DIR}}/bin/{{.VERSION}}
+        if [ "{{.VERSION}}" = "main" ]; then
+          echo "Downloading nats-server @main..."
+          curl -fsSL https://binaries.nats.dev/nats-io/nats-server/v2@main | PREFIX={{.SERVER_DIR}}/bin/{{.VERSION}} sh
+        else
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          [ "$ARCH" = "x86_64" ] && ARCH="amd64"
+          [ "$ARCH" = "aarch64" ] && ARCH="arm64"
+          echo "Downloading nats-server v{{.VERSION}} for ${OS}-${ARCH}..."
+          RELEASE="nats-server-v{{.VERSION}}-${OS}-${ARCH}"
+          curl -fsSL "https://github.com/nats-io/nats-server/releases/download/v{{.VERSION}}/${RELEASE}.tar.gz" \
+            | tar -xz -C {{.SERVER_DIR}}/bin/{{.VERSION}} --strip-components=1
+        fi
+        echo "nats-server @{{.VERSION}} ready."
 
   # ── Internal: stop + wipe helpers ───────────────────────────────────────────
 
@@ -69,7 +83,7 @@ tasks:
     cmds:
       - mkdir -p logs data
       - |
-        ./bin/nats-server -c conf/single/server.conf > logs/single.log 2>&1 &
+        ./bin/{{.VERSION}}/nats-server -c conf/single/server.conf > logs/single.log 2>&1 &
         echo $! > .pids
       - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8222/healthz > /dev/null
       - echo "Single server healthy (port 4222)"
@@ -86,11 +100,11 @@ tasks:
     cmds:
       - mkdir -p logs data
       - |
-        ./bin/nats-server -c conf/cluster/n1.conf > logs/n1.log 2>&1 &
+        ./bin/{{.VERSION}}/nats-server -c conf/cluster/n1.conf > logs/n1.log 2>&1 &
         echo $! >> .pids
-        ./bin/nats-server -c conf/cluster/n2.conf > logs/n2.log 2>&1 &
+        ./bin/{{.VERSION}}/nats-server -c conf/cluster/n2.conf > logs/n2.log 2>&1 &
         echo $! >> .pids
-        ./bin/nats-server -c conf/cluster/n3.conf > logs/n3.log 2>&1 &
+        ./bin/{{.VERSION}}/nats-server -c conf/cluster/n3.conf > logs/n3.log 2>&1 &
         echo $! >> .pids
       - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8222/healthz > /dev/null
       - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8223/healthz > /dev/null
@@ -109,7 +123,7 @@ tasks:
     cmds:
       - mkdir -p logs data
       - |
-        BIN=./bin/nats-server
+        BIN=./bin/{{.VERSION}}/nats-server
 
         echo "Starting Cluster 1..."
         $BIN -c conf/super/c1-n1.conf > logs/c1-n1.log 2>&1 & echo $! >> .pids
@@ -136,7 +150,7 @@ tasks:
       - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8230/healthz > /dev/null
       - echo "All 9 core nodes healthy. Starting leaf nodes..."
       - |
-        BIN=./bin/nats-server
+        BIN=./bin/{{.VERSION}}/nats-server
 
         $BIN -c conf/super/c1-l1.conf > logs/c1-l1.log 2>&1 & echo $! >> .pids
         $BIN -c conf/super/c1-l2.conf > logs/c1-l2.log 2>&1 & echo $! >> .pids
