@@ -10,6 +10,7 @@ tasks:
 
   server:download:
     internal: true
+    silent: true
     desc: Download nats-server binary if not present
     cmds:
       - |
@@ -22,6 +23,7 @@ tasks:
 
   server:_stop:
     internal: true
+    silent: true
     cmds:
       - |
         PID_FILE={{.SERVER_DIR}}/.pids
@@ -38,14 +40,17 @@ tasks:
 
   server:_wipe:
     internal: true
+    silent: true
     cmds:
-      - rm -rf {{.SERVER_DIR}}/data
-      - echo "Data wiped."
+      - |
+        rm -rf {{.SERVER_DIR}}/data
+        echo "Data wiped."
 
   # ── Internal: context helpers ───────────────────────────────────────────────
 
   nats:_context:
     internal: true
+    silent: true
     desc: Save and select a NATS CLI context
     requires:
       vars: [CONTEXT_NAME, CONTEXT_URL]
@@ -58,6 +63,7 @@ tasks:
 
   server:single:
     desc: "Start single-node NATS server (port 4222)"
+    silent: true
     deps: [server:download]
     dir: '{{.SERVER_DIR}}'
     cmds:
@@ -74,6 +80,7 @@ tasks:
 
   server:cluster:
     desc: "Start 3-node JetStream cluster (ports 4222-4224)"
+    silent: true
     deps: [server:download]
     dir: '{{.SERVER_DIR}}'
     cmds:
@@ -96,6 +103,7 @@ tasks:
 
   server:super:
     desc: "Start full supercluster — 3 clusters × 3 nodes + 7 leaf nodes (16 servers)"
+    silent: true
     deps: [server:download]
     dir: '{{.SERVER_DIR}}'
     cmds:
@@ -151,18 +159,21 @@ tasks:
   # ── Stop / wipe / reset ─────────────────────────────────────────────────────
 
   server:stop:
-    desc: "Stop all running NATS servers"
-    cmds:
-      - task: server:_stop
-
-  server:wipe:
-    desc: "Stop servers and delete all data"
+    desc: "Stop all running NATS servers and wipe all data"
+    silent: true
     cmds:
       - task: server:_stop
       - task: server:_wipe
 
+  server:wipe:
+    desc: "Alias for server:stop (stop and wipe all data)"
+    silent: true
+    cmds:
+      - task: server:stop
+
   server:reset:single:
     desc: "Wipe data and restart single-node server"
+    silent: true
     cmds:
       - task: server:_stop
       - task: server:_wipe
@@ -170,6 +181,7 @@ tasks:
 
   server:reset:cluster:
     desc: "Wipe data and restart 3-node cluster"
+    silent: true
     cmds:
       - task: server:_stop
       - task: server:_wipe
@@ -177,6 +189,7 @@ tasks:
 
   server:reset:super:
     desc: "Wipe data and restart full supercluster"
+    silent: true
     cmds:
       - task: server:_stop
       - task: server:_wipe
@@ -186,6 +199,7 @@ tasks:
 
   server:status:
     desc: "Show health of all known server endpoints"
+    silent: true
     cmds:
       - |
         check() {
