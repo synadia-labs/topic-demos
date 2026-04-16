@@ -68,7 +68,7 @@ tasks:
       - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8222/healthz > /dev/null
       - echo "Single server healthy (port 4222)"
       - task: nats:_context
-        vars: { CONTEXT_NAME: single, CONTEXT_URL: "nats://sys:sys@localhost:4222" }
+        vars: { CONTEXT_NAME: single, CONTEXT_URL: "nats://app:app@localhost:4222" }
 
   # ── 3-node cluster ──────────────────────────────────────────────────────────
 
@@ -90,7 +90,7 @@ tasks:
       - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:8224/healthz > /dev/null
       - echo "3-node cluster healthy (ports 4222-4224)"
       - task: nats:_context
-        vars: { CONTEXT_NAME: cluster, CONTEXT_URL: "nats://sys:sys@localhost:4222,nats://sys:sys@localhost:4223,nats://sys:sys@localhost:4224" }
+        vars: { CONTEXT_NAME: cluster, CONTEXT_URL: "nats://app:app@localhost:4222,nats://app:app@localhost:4223,nats://app:app@localhost:4224" }
 
   # ── Supercluster ────────────────────────────────────────────────────────────
 
@@ -146,7 +146,7 @@ tasks:
       - curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://localhost:9006/healthz > /dev/null
       - echo "All 16 servers healthy and running!"
       - task: nats:_context
-        vars: { CONTEXT_NAME: super, CONTEXT_URL: "nats://sys:sys@localhost:4222,nats://sys:sys@localhost:4223,nats://sys:sys@localhost:4224" }
+        vars: { CONTEXT_NAME: super, CONTEXT_URL: "nats://app:app@localhost:4222,nats://app:app@localhost:4223,nats://app:app@localhost:4224" }
 
   # ── Stop / wipe / reset ─────────────────────────────────────────────────────
 
