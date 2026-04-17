@@ -36,12 +36,18 @@ After starting, a NATS CLI context is automatically saved and selected so `nats`
 
 | Demo | Topic | Docs |
 |---|---|---|
+| [`async-stream-flushing`](cmd/async-stream-flushing/) | JetStream async stream flushing — KubeCon benchmarks (sync vs async, R1 vs R3) | [README](cmd/async-stream-flushing/kubecon/README.md) |
 | [`delayed-message-scheduling`](cmd/delayed-message-scheduling/) | JetStream Message Scheduler — deferred and recurring delivery | [README](cmd/delayed-message-scheduling/README.md) |
 
 ## Repo Layout
 
 ```
 cmd/
+  async-stream-flushing/        # KubeCon bench scripts + HTML visualizers
+    kubecon/
+      bench-r1.sh / bench-r1.ps1
+      bench-r3.sh
+      r1.html / r3.html
   delayed-message-scheduling/   # Go demo + CLI walkthrough
     main.go
     demo/

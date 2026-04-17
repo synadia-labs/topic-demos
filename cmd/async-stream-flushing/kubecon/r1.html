@@ -73,11 +73,22 @@
             font-size: 14px;
         }
 
-        .charts-container {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 30px;
-            margin-bottom: 30px;
+        .batch-section {
+            margin-bottom: 40px;
+        }
+
+        .batch-section h2 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 2px solid #27aae1;
+        }
+
+        .batch-charts {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
         }
 
         .chart-wrapper {
@@ -87,16 +98,16 @@
             border-radius: 8px;
         }
 
-        .chart-wrapper h2 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 20px;
+        .chart-wrapper h3 {
+            color: #555;
+            margin-bottom: 12px;
+            font-size: 15px;
             text-align: center;
         }
 
         .chart-container {
             position: relative;
-            height: 400px;
+            height: 300px;
         }
 
         table {
@@ -208,6 +219,32 @@
             color: #c62828;
         }
 
+        .chart-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .chart-tab-btn {
+            padding: 5px 12px;
+            border: 1px solid #ddd;
+            background: #f5f5f5;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #555;
+            transition: background 0.2s;
+        }
+
+        .chart-tab-btn:hover { background: #e8f4fc; }
+
+        .chart-tab-btn.active {
+            background: #27aae1;
+            color: white;
+            border-color: #27aae1;
+        }
+
         .hidden {
             display: none;
         }
@@ -227,21 +264,7 @@
         <div id="content" class="hidden">
             <div class="stats-summary" id="statsSummary"></div>
 
-            <div class="charts-container">
-                <div class="chart-wrapper">
-                    <h2>Messages per Second by Message Size</h2>
-                    <div class="chart-container">
-                        <canvas id="msgsChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="chart-wrapper">
-                    <h2>Bytes per Second by Message Size</h2>
-                    <div class="chart-container">
-                        <canvas id="bytesChart"></canvas>
-                    </div>
-                </div>
-            </div>
+            <div id="chartsContainer"></div>
 
             <div class="comparison-table">
                 <h2>Detailed Results</h2>
@@ -265,8 +288,21 @@
 
     <script>
         let benchmarkData = [];
-        let msgsChart = null;
-        let bytesChart = null;
+        let activeCharts = {};
+
+        function setupChartTabs(tabsEl, chart) {
+            tabsEl.addEventListener('click', e => {
+                const btn = e.target.closest('.chart-tab-btn');
+                if (!btn) return;
+                tabsEl.querySelectorAll('.chart-tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const batch = btn.dataset.batch;
+                chart.data.datasets.forEach(ds => {
+                    ds.hidden = batch !== 'all' && !ds.label.endsWith(`Batch ${batch}`);
+                });
+                chart.update();
+            });
+        }
 
         // Parse the benchmark output (same logic as Go parser)
         function parseBenchmarkOutput(content) {
@@ -343,175 +379,105 @@
             return num.toLocaleString();
         }
 
-        function createCharts() {
-            const sizes = [...new Set(benchmarkData.map(d => d.size))].sort((a, b) => a - b);
-
-            // Group by persist mode and flush type
-            const datasets = {};
-            benchmarkData.forEach(d => {
-                const key = `${d.persistMode}_${d.batchSize}`;
-                if (!datasets[key]) {
-                    datasets[key] = {
-                        label: `${d.persistMode === 'sync' ? 'Sync' : 'Async'} - ${formatBatchSize(d.batchSize)}`,
-                        data: [],
-                        persistMode: d.persistMode,
-                        batchSize: d.batchSize
-                    };
+        function makeChartOptions(yLabel, tooltipFmt, tickFmt) {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 } },
+                    tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${tooltipFmt(ctx.parsed.y)}` } }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Message Size (bytes)' } },
+                    y: { beginAtZero: true, title: { display: true, text: yLabel }, ticks: { callback: v => tickFmt(v) } }
                 }
-            });
+            };
+        }
 
-            // Fill in data for each size
-            sizes.forEach(size => {
-                Object.keys(datasets).forEach(key => {
-                    const match = benchmarkData.find(d =>
-                        d.size === size && `${d.persistMode}_${d.batchSize}` === key
-                    );
-                    datasets[key].data.push(match ? match.msgsPerSec : null);
-                });
-            });
+        function createCharts() {
+            Object.values(activeCharts).forEach(c => c.destroy());
+            activeCharts = {};
 
-            // Assign colors
-            const colors = [
-                { border: '#ff6b6b', bg: 'rgba(255, 107, 107, 0.1)' },  // Sync sync_flush
-                { border: '#ff8787', bg: 'rgba(255, 135, 135, 0.1)' },  // Sync async_batch_100
-                { border: '#ffa8a8', bg: 'rgba(255, 168, 168, 0.1)' },  // Sync async_batch_500
-                { border: '#51cf66', bg: 'rgba(81, 207, 102, 0.1)' },   // Async sync_flush
-                { border: '#69db7c', bg: 'rgba(105, 219, 124, 0.1)' },  // Async async_batch_100
-                { border: '#8ce99a', bg: 'rgba(140, 233, 154, 0.1)' },  // Async async_batch_500
+            const sizes = [...new Set(benchmarkData.map(d => d.size))].sort((a, b) => a - b);
+            const allBatchSizes = [...new Set(benchmarkData.map(d => d.batchSize))].sort((a, b) => parseInt(a) - parseInt(b));
+
+            const container = document.getElementById('chartsContainer');
+            container.innerHTML = '';
+
+            const overviewPalettes = [
+                { sync: '#1864ab', async: '#74c0fc' },
+                { sync: '#c92a2a', async: '#ff8787' },
+                { sync: '#2b8a3e', async: '#69db7c' },
+                { sync: '#862e9c', async: '#da77f2' },
             ];
 
-            let colorIndex = 0;
-            const chartDatasets = Object.values(datasets).map(ds => {
-                const color = colors[colorIndex++ % colors.length];
-                return {
-                    label: ds.label,
-                    data: ds.data,
-                    borderColor: color.border,
-                    backgroundColor: color.bg,
-                    borderWidth: 2,
-                    tension: 0.1,
-                    fill: true
-                };
-            });
+            // Overview section — all batch sizes on one chart
+            const batchTabBtns = ['all', ...allBatchSizes].map((b, i) =>
+                `<button class="chart-tab-btn${i === 0 ? ' active' : ''}" data-batch="${b}">${b === 'all' ? 'All' : 'Batch ' + b}</button>`
+            ).join('');
+            const overviewSection = document.createElement('div');
+            overviewSection.className = 'batch-section';
+            overviewSection.innerHTML = `
+                <h2>Overview</h2>
+                <div class="batch-charts">
+                    <div class="chart-wrapper">
+                        <div class="chart-tabs" id="tabs_msgs">${batchTabBtns}</div>
+                        <h3>Messages per Second</h3>
+                        <div class="chart-container"><canvas id="overview_msgs"></canvas></div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <div class="chart-tabs" id="tabs_bytes">${batchTabBtns}</div>
+                        <h3>Bytes per Second</h3>
+                        <div class="chart-container"><canvas id="overview_bytes"></canvas></div>
+                    </div>
+                </div>`;
+            container.appendChild(overviewSection);
 
-            // Messages per second chart
-            const msgsCtx = document.getElementById('msgsChart').getContext('2d');
-            if (msgsChart) msgsChart.destroy();
-            msgsChart = new Chart(msgsCtx, {
-                type: 'line',
-                data: {
-                    labels: sizes,
-                    datasets: chartDatasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 15
-                            }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return `${context.dataset.label}: ${formatNumber(context.parsed.y)} msgs/sec`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Message Size (bytes)'
-                            }
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Messages per Second'
-                            },
-                            ticks: {
-                                callback: function(value) {
-                                    return formatNumber(value);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-
-            // Bytes per second chart
-            const bytesDatasets = Object.entries(datasets).map(([key, ds], idx) => {
-                const bytesData = sizes.map(size => {
-                    const match = benchmarkData.find(d =>
-                        d.size === size && `${d.persistMode}_${d.batchSize}` === key
-                    );
-                    return match ? match.bytesPerSec : null;
+            const overviewMsgsDatasets = [];
+            const overviewBytesDatasets = [];
+            allBatchSizes.forEach((batchSize, bIdx) => {
+                const palette = overviewPalettes[bIdx % overviewPalettes.length];
+                ['sync', 'async'].forEach(mode => {
+                    const isSync = mode === 'sync';
+                    const color = isSync ? palette.sync : palette.async;
+                    const baseDs = {
+                        label: `${isSync ? 'Sync' : 'Async'} - Batch ${batchSize}`,
+                        borderColor: color,
+                        backgroundColor: color + '22',
+                        borderWidth: isSync ? 3 : 2,
+                        borderDash: isSync ? [] : [6, 3],
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        tension: 0.1,
+                        fill: false
+                    };
+                    const dataPoints = sizes.map(size => {
+                        const m = benchmarkData.find(d => d.size === size && d.batchSize === batchSize && d.persistMode === mode);
+                        return m ? m.msgsPerSec : null;
+                    });
+                    overviewMsgsDatasets.push({ ...baseDs, data: dataPoints });
+                    const bytesPoints = sizes.map(size => {
+                        const m = benchmarkData.find(d => d.size === size && d.batchSize === batchSize && d.persistMode === mode);
+                        return m ? m.bytesPerSec : null;
+                    });
+                    overviewBytesDatasets.push({ ...baseDs, data: bytesPoints });
                 });
-                const color = colors[idx % colors.length];
-                return {
-                    label: ds.label,
-                    data: bytesData,
-                    borderColor: color.border,
-                    backgroundColor: color.bg,
-                    borderWidth: 2,
-                    tension: 0.1,
-                    fill: true
-                };
             });
 
-            const bytesCtx = document.getElementById('bytesChart').getContext('2d');
-            if (bytesChart) bytesChart.destroy();
-            bytesChart = new Chart(bytesCtx, {
+            activeCharts['overview_msgs'] = new Chart(document.getElementById('overview_msgs'), {
                 type: 'line',
-                data: {
-                    labels: sizes,
-                    datasets: bytesDatasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 15
-                            }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return `${context.dataset.label}: ${formatBytes(context.parsed.y)}`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Message Size (bytes)'
-                            }
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Bytes per Second'
-                            },
-                            ticks: {
-                                callback: function(value) {
-                                    return formatBytes(value);
-                                }
-                            }
-                        }
-                    }
-                }
+                data: { labels: sizes, datasets: overviewMsgsDatasets },
+                options: makeChartOptions('Messages per Second', v => formatNumber(v) + ' msgs/sec', formatNumber)
             });
+            activeCharts['overview_bytes'] = new Chart(document.getElementById('overview_bytes'), {
+                type: 'line',
+                data: { labels: sizes, datasets: overviewBytesDatasets },
+                options: makeChartOptions('Bytes per Second', formatBytes, formatBytes)
+            });
+
+            setupChartTabs(document.getElementById('tabs_msgs'), activeCharts['overview_msgs']);
+            setupChartTabs(document.getElementById('tabs_bytes'), activeCharts['overview_bytes']);
+
         }
 
         function formatBatchSize(type) {
