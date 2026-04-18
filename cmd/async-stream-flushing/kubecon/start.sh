@@ -18,10 +18,15 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   # No patch version provided, look for it in bin/
   matching_version=$(ls -1 "$SCRIPT_DIR/bin/" 2>/dev/null | grep "^${VERSION}\." | sort -V | tail -1)
   if [ -z "$matching_version" ]; then
-    echo "Error: No version found in bin/ matching ${VERSION}.*"
-    echo "Available versions:"
-    ls -1 "$SCRIPT_DIR/bin/" 2>/dev/null || echo "  (bin/ directory not found)"
-    exit 1
+    echo "No version found in bin/ matching ${VERSION}.*, fetching latest ${VERSION}.x from GitHub..."
+    matching_version=$(curl -sf "https://api.github.com/repos/nats-io/nats-server/releases" | \
+      grep '"tag_name"' | grep "\"v${VERSION}\." | head -1 | \
+      sed 's/.*"v\([^"]*\)".*/\1/')
+    if [ -z "$matching_version" ]; then
+      echo "Error: Could not find a release matching ${VERSION}.x on GitHub"
+      exit 1
+    fi
+    echo "Found: ${matching_version}"
   fi
   VERSION="$matching_version"
 fi
