@@ -1,0 +1,5 @@
+.pids
+data/
+logs/
+crdt-convergence
+crdt-convergence.exe

@@ -128,3 +128,13 @@ then 2.12 appended to the same file) are distinguishable in the visualizer.
 
 **What it shows:** How client-side batching affects throughput when replication
 latency is the bottleneck, and how that changes across NATS server versions.
+
+---
+
+## Real Environment Differences
+
+These benchmarks run everything on one laptop, so the numbers are modest. In
+production, each server gets its own machine, its own disk, and real network
+cables between them — which means the gaps between sync and async, and between
+2.11 and 2.12, would be noticeably larger. The winners are the same; the
+margins are bigger.
