@@ -1,0 +1,88 @@
+version: '3'
+
+vars:
+  IMAGE: asia-counter
+  VOLUME: asia-counter-data
+  NODE_ID: asia
+  COLOR: "#f97316"
+
+tasks:
+
+  build:
+    desc: "Build the Docker image"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker build -t {{.IMAGE}} .
+
+  run:
+    desc: "Run the Asia counter node (builds first)"
+    dir: '{{.TASKFILE_DIR}}'
+    deps: [build]
+    cmds:
+      - docker run --rm -p 8080:8080 -v {{.VOLUME}}:/data -e NODE_ID={{.NODE_ID}} -e COLOR={{.COLOR}} {{.IMAGE}}
+
+  reset:
+    desc: "Wipe counter data and re-run"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker volume rm -f {{.VOLUME}}
+      - task: run
+
+  dev:
+    desc: "Run locally with hot reload (needs Go + air)"
+    dir: '{{.TASKFILE_DIR}}'
+    env:
+      NODE_ID: "{{.NODE_ID}}"
+      COLOR: "{{.COLOR}}"
+    cmds:
+      - air
+
+  network:
+    desc: "Create shared Docker network (idempotent)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker network create demo-net 2>/dev/null || true
+
+  asia:
+    desc: "Build and run the Asia service (run in its own terminal)"
+    dir: '{{.TASKFILE_DIR}}'
+    deps: [network]
+    cmds:
+      - docker build -t embedded-demo-asia ./asia
+      - docker run --rm --name asia --network demo-net -p 8080:8080 embedded-demo-asia
+
+  america:
+    desc: "Build and run the America service (run in its own terminal)"
+    dir: '{{.TASKFILE_DIR}}'
+    deps: [network]
+    cmds:
+      - docker build -t embedded-demo-america ./america
+      - docker run --rm --name america --network demo-net -p 8082:8080 embedded-demo-america
+
+  europe:
+    desc: "Build and run the Europe service (run in its own terminal)"
+    dir: '{{.TASKFILE_DIR}}'
+    deps: [network]
+    cmds:
+      - docker build -t embedded-demo-europe ./europe
+      - docker run --rm --name europe --network demo-net -p 8083:8080 embedded-demo-europe
+
+  global:
+    desc: "Build and run the Global service (run in its own terminal)"
+    dir: '{{.TASKFILE_DIR}}'
+    deps: [network]
+    cmds:
+      - docker build -t embedded-demo-global ./global
+      - docker run --rm --name global --network demo-net -p 8081:8080 embedded-demo-global
+
+  compose:
+    desc: "Start asia + global with Docker Compose"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build
+
+  compose:down:
+    desc: "Stop and remove compose services and volumes"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose down -v

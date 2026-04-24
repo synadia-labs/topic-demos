@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Europe — NATS Counter CRDT</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js"></script>
+</head>
+<body class="bg-[#0a0a0a] text-white font-mono min-h-screen flex flex-col items-center justify-center gap-5"
+      style="--node-color: #22c55e"
+      data-signals:europeHits="'0'"
+      data-init="@get('/counters')">
+
+<div class="flex flex-col items-center gap-2.5 p-8 border border-[#222] rounded-xl">
+  <div class="text-sm text-[#666]">Europe</div>
+  <div class="text-6xl font-bold tabular-nums" style="color: var(--node-color)" data-text="$europeHits">—</div>
+  <div class="mt-4 flex gap-3">
+    <button
+      class="px-6 py-3 rounded-lg text-white font-bold text-lg hover:opacity-80 active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+      style="background: var(--node-color)"
+      data-attr:disabled="$europeHits == '0'"
+      data-on:click="@post('/decrement/europe')">
+      −1
+    </button>
+    <button
+      class="px-6 py-3 rounded-lg text-white font-bold text-lg hover:opacity-80 active:scale-95 transition-all cursor-pointer"
+      style="background: var(--node-color)"
+      data-on:click="@post('/hit/europe')">
+      +1
+    </button>
+  </div>
+  <div class="mt-4 pt-4 border-t border-[#222] flex gap-4 flex-wrap justify-center">
+    <a href="http://localhost:8081" class="text-xs text-[#555] hover:text-white transition-colors">↑ Global</a>
+    <span class="text-[#333]">|</span>
+    <a href="http://localhost:8084" class="text-xs text-[#555] hover:text-white transition-colors">Spain</a>
+    <a href="http://localhost:8085" class="text-xs text-[#555] hover:text-white transition-colors">France</a>
+    <a href="http://localhost:8086" class="text-xs text-[#555] hover:text-white transition-colors">England</a>
+  </div>
+</div>
+
+</body>
+</html>
