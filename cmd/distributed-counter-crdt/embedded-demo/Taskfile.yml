@@ -67,6 +67,14 @@ tasks:
       - docker build -t embedded-demo-europe ./europe
       - docker run --rm --name europe --network demo-net -p 8083:8080 embedded-demo-europe
 
+  europe:embedded:
+    desc: "Build and run embedded Europe (NATS server + app in one process) — replaces both nats-europe and europe"
+    dir: '{{.TASKFILE_DIR}}'
+    deps: [network]
+    cmds:
+      - docker build -t embedded-demo-europe-embedded ./europe/embedded
+      - docker run --rm --name nats-europe --network demo-net -p 8083:8080 -p 7422:7422 -v nats-europe-data:/data -e LEAF_REMOTE_URL=nats://nats-global:7422 embedded-demo-europe-embedded
+
   global:
     desc: "Build and run the Global service (run in its own terminal)"
     dir: '{{.TASKFILE_DIR}}'
@@ -76,10 +84,16 @@ tasks:
       - docker run --rm --name global --network demo-net -p 8081:8080 embedded-demo-global
 
   compose:
-    desc: "Start asia + global with Docker Compose"
+    desc: "Start all services with Docker Compose"
     dir: '{{.TASKFILE_DIR}}'
     cmds:
       - docker compose up --build
+
+  compose:embedded-europe:
+    desc: "Start full stack using embedded Europe (NATS + app in one process)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose -f docker-compose.yml -f docker-compose.embedded-europe.yml up --build
 
   compose:down:
     desc: "Stop and remove compose services and volumes"

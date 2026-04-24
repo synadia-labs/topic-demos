@@ -1,0 +1,23 @@
+services:
+  # Replace the standalone NATS server with the embedded build.
+  # Same service name = same hostname on the network, so spain/france/england
+  # configs still connect to nats-europe:7422 without any changes.
+  nats-europe:
+    build: ./europe/embedded
+    image: embedded-europe
+    command: []
+    environment:
+      - LEAF_REMOTE_URL=nats://nats-global:7422
+      - STORE_DIR=/data
+    ports:
+      - "8083:8080"
+      - "7422:7422"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # Disable the now-redundant standalone Europe app container
+  europe:
+    profiles: [legacy-europe]
