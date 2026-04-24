@@ -1,33 +1,25 @@
 # Distributed Counter CRDT — Embedded Demo
 
-## Dashboards
+Two variants, same topology, same ports.
 
-| Node    | URL                   |
-|---------|-----------------------|
-| Global  | http://localhost:8081 |
-| Asia    | http://localhost:8080 |
-| America | http://localhost:8082 |
-| Europe  | http://localhost:8083 |
-| Spain   | http://localhost:8084 |
-| France  | http://localhost:8085 |
-| England | http://localhost:8086 |
+## containers/
+Separate NATS server container per region alongside its app container.
+Run with: `cd containers && task compose`
 
-## Running
-
-```
-docker compose up --build
-```
+## embedded/
+NATS server embedded directly in each app binary (`nats-server/v2`). One container per region.
+Run with: `cd embedded && task compose`
 
 ## Topology
 
 ```
-global
-├── asia
-├── america
-└── europe
-    ├── spain
-    ├── france
-    └── england
+global  (8081)
+├── asia    (8080)
+├── america (8082)
+└── europe  (8083)
+    ├── spain   (8084)
+    ├── france  (8085)
+    └── england (8086)
 ```
 
 Global aggregates from asia, america, and europe. Europe aggregates from spain, france, and england.
