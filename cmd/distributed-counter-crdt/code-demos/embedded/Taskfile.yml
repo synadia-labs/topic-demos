@@ -1,0 +1,26 @@
+version: '3'
+
+tasks:
+
+  compose:
+    desc: "Start all services with Docker Compose (NATS embedded in each container)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build
+
+  compose:down:
+    desc: "Stop and remove compose services and volumes"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose down -v
+
+  update-template:
+    desc: "Copy template.html to all region static/index.html files"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - cp template.html america/static/index.html
+      - cp template.html asia/static/index.html
+      - cp template.html england/static/index.html
+      - cp template.html europe/static/index.html
+      - cp template.html france/static/index.html
+      - cp template.html spain/static/index.html

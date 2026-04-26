@@ -1,0 +1,316 @@
+package main
+
+import (
+	"context"
+	"embed"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	natssrv "github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/starfederation/datastar-go/datastar"
+)
+
+//go:embed static
+var staticFiles embed.FS
+
+const (
+	signalName = "globalHits"
+	subject    = "count.global.hits"
+)
+
+type regionDef struct {
+	localStream  string
+	sourceStream string
+	domain       string
+	subject      string
+	signal       string
+}
+
+var regions = []regionDef{
+	{"COUNTER_AMERICA_VIEW", "COUNTER_AMERICA", "america", "count.america.hits", "americaHits"},
+	{"COUNTER_ASIA_VIEW", "COUNTER_ASIA", "asia", "count.asia.hits", "asiaHits"},
+	{"COUNTER_EUROPE_VIEW", "COUNTER_EUROPE", "europe", "count.europe.hits", "europeHits"},
+	{"COUNTER_FRANCE_GLOBAL_VIEW", "COUNTER_FRANCE_VIEW", "europe", "count.france.hits", "franceHits"},
+	{"COUNTER_SPAIN_GLOBAL_VIEW", "COUNTER_SPAIN_VIEW", "europe", "count.spain.hits", "spainHits"},
+	{"COUNTER_ENGLAND_GLOBAL_VIEW", "COUNTER_ENGLAND_VIEW", "europe", "count.england.hits", "englandHits"},
+}
+
+type app struct {
+	js         jetstream.JetStream
+	stream     jetstream.Stream
+	viewStreams map[string]jetstream.Stream
+}
+
+func main() {
+	storeDir := os.Getenv("STORE_DIR")
+	if storeDir == "" {
+		storeDir = "/data"
+	}
+
+	opts := &natssrv.Options{
+		ServerName:      "global",
+		JetStream:       true,
+		JetStreamDomain: "global",
+		StoreDir:        storeDir,
+		HTTPPort:        8222,
+		LeafNode: natssrv.LeafNodeOpts{
+			Port: 7422,
+		},
+	}
+
+	ns, err := natssrv.NewServer(opts)
+	if err != nil {
+		log.Fatalf("nats server: %v", err)
+	}
+	ns.Start()
+	if !ns.ReadyForConnections(10 * time.Second) {
+		log.Fatal("nats server not ready after 10s")
+	}
+	log.Printf("embedded nats server ready: %s", ns.ClientURL())
+
+	var nc *nats.Conn
+	for {
+		nc, err = nats.Connect(ns.ClientURL())
+		if err == nil {
+			break
+		}
+		log.Printf("connect (retrying): %v", err)
+		time.Sleep(time.Second)
+	}
+	defer nc.Close()
+
+	if _, err := nc.Subscribe("count.*.hits", func(msg *nats.Msg) {
+		parts := strings.Split(msg.Subject, ".")
+		log.Printf("[msg] region=%-8s incr=%s", parts[1], msg.Header.Get("Nats-Incr"))
+	}); err != nil {
+		log.Fatalf("subscribe: %v", err)
+	}
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		log.Fatalf("jetstream: %v", err)
+	}
+
+	cfg := jetstream.StreamConfig{
+		Name:            "COUNTER_GLOBAL",
+		Subjects:        []string{subject},
+		AllowMsgCounter: true,
+		AllowDirect:     true,
+		Storage:         jetstream.FileStorage,
+		Sources: []*jetstream.StreamSource{
+			{
+				Name:   "COUNTER_ASIA",
+				Domain: "asia",
+				SubjectTransforms: []jetstream.SubjectTransformConfig{{
+					Source:      "count.asia.hits",
+					Destination: subject,
+				}},
+			},
+			{
+				Name:   "COUNTER_AMERICA",
+				Domain: "america",
+				SubjectTransforms: []jetstream.SubjectTransformConfig{{
+					Source:      "count.america.hits",
+					Destination: subject,
+				}},
+			},
+			{
+				Name:   "COUNTER_EUROPE",
+				Domain: "europe",
+				SubjectTransforms: []jetstream.SubjectTransformConfig{{
+					Source:      "count.europe.hits",
+					Destination: subject,
+				}},
+			},
+		},
+	}
+	var stream jetstream.Stream
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stream, err = js.CreateOrUpdateStream(ctx, cfg)
+		cancel()
+		if err == nil {
+			break
+		}
+		log.Printf("create stream (retrying): %v", err)
+		time.Sleep(time.Second)
+	}
+	log.Println("stream COUNTER_GLOBAL ready")
+
+	viewStreams := map[string]jetstream.Stream{}
+	for _, reg := range regions {
+		rcfg := jetstream.StreamConfig{
+			Name:        reg.localStream,
+			AllowDirect: true,
+			Storage:     jetstream.FileStorage,
+			Mirror: &jetstream.StreamSource{
+				Name:   reg.sourceStream,
+				Domain: reg.domain,
+			},
+		}
+		var vs jetstream.Stream
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			vs, err = js.CreateOrUpdateStream(ctx, rcfg)
+			cancel()
+			if err == nil {
+				break
+			}
+			log.Printf("create view stream %s (retrying): %v", reg.localStream, err)
+			time.Sleep(time.Second)
+		}
+		if err != nil {
+			log.Printf("view stream %s unavailable, will show 0: %v", reg.localStream, err)
+			continue
+		}
+		log.Printf("view stream %s ready", reg.localStream)
+		viewStreams[reg.signal] = vs
+	}
+
+	a := &app{js: js, stream: stream, viewStreams: viewStreams}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		data, _ := staticFiles.ReadFile("static/index.html")
+		w.Write(data)
+	})
+	mux.HandleFunc("GET /counters", a.handleCounters)
+	mux.HandleFunc("GET /breakdown", a.handleBreakdown)
+	mux.HandleFunc("POST /hit/{node}", a.handleIncrement(1))
+	mux.HandleFunc("POST /decrement/{node}", a.handleIncrement(-1))
+
+	log.Println("listening :8080")
+	log.Fatal(http.ListenAndServe(":8080", mux))
+}
+
+func (a *app) readVal() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	msg, err := a.stream.GetLastMsgForSubject(ctx, subject)
+	if err != nil {
+		return "0"
+	}
+	var v struct {
+		Val string `json:"val"`
+	}
+	if err := json.Unmarshal(msg.Data, &v); err != nil || v.Val == "" {
+		return "0"
+	}
+	return v.Val
+}
+
+func (a *app) readRegionVal(reg regionDef) string {
+	vs, ok := a.viewStreams[reg.signal]
+	if !ok {
+		return "0"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	msg, err := vs.GetLastMsgForSubject(ctx, reg.subject)
+	if err != nil {
+		return "0"
+	}
+	var v struct {
+		Val string `json:"val"`
+	}
+	if err := json.Unmarshal(msg.Data, &v); err != nil || v.Val == "" {
+		return "0"
+	}
+	return v.Val
+}
+
+func (a *app) handleCounters(w http.ResponseWriter, r *http.Request) {
+	sse := datastar.NewSSE(w, r)
+
+	val := a.readVal()
+	_ = sse.MarshalAndPatchSignals(map[string]any{signalName: val})
+	prev := val
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			newVal := a.readVal()
+			if newVal == prev {
+				continue
+			}
+			prev = newVal
+			_ = sse.MarshalAndPatchSignals(map[string]any{signalName: newVal})
+		}
+	}
+}
+
+func (a *app) handleBreakdown(w http.ResponseWriter, r *http.Request) {
+	sse := datastar.NewSSE(w, r)
+
+	prev := map[string]string{}
+	signals := map[string]any{}
+	for _, reg := range regions {
+		val := a.readRegionVal(reg)
+		signals[reg.signal] = val
+		prev[reg.signal] = val
+	}
+	_ = sse.MarshalAndPatchSignals(signals)
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			update := map[string]any{}
+			changed := false
+			for _, reg := range regions {
+				val := a.readRegionVal(reg)
+				if val != prev[reg.signal] {
+					update[reg.signal] = val
+					prev[reg.signal] = val
+					changed = true
+				}
+			}
+			if changed {
+				_ = sse.MarshalAndPatchSignals(update)
+			}
+		}
+	}
+}
+
+func (a *app) handleIncrement(delta int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+
+		if delta < 0 && a.readVal() == "0" {
+			return
+		}
+
+		ack, err := a.js.PublishMsg(ctx, &nats.Msg{
+			Subject: subject,
+			Header:  nats.Header{"Nats-Incr": {fmt.Sprintf("%+d", delta)}},
+		})
+		if err != nil {
+			log.Printf("increment: %v", err)
+			http.Error(w, "increment failed", http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("hit: node=%s delta=%d val=%s", r.PathValue("node"), delta, ack.Value)
+		sse := datastar.NewSSE(w, r)
+		_ = sse.MarshalAndPatchSignals(map[string]any{signalName: ack.Value})
+	}
+}
