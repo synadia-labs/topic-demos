@@ -4,13 +4,10 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
-	"text/template"
 	"time"
 
 	natssrv "github.com/nats-io/nats-server/v2/server"
@@ -28,35 +25,8 @@ const (
 	streamName = "COUNTER_EUROPE"
 )
 
-var (
-	nodeName  = getEnv("NODE_NAME", "europe")
-	nodeColor = getEnv("NODE_COLOR", "#22c55e")
-	nodeTitle = getEnv("NODE_TITLE", "Europe")
-)
-
-type navLink struct {
-	Label string
-	URL   string
-}
-
-type pageConfig struct {
-	NodeName string
-	Color    string
-	Title    string
-	NavLinks []navLink
-	ReadOnly bool
-}
-
-var navLinks = []navLink{
-	{Label: "↑ Global", URL: "http://localhost:8081"},
-	{Label: "Spain", URL: "http://localhost:8084"},
-	{Label: "France", URL: "http://localhost:8085"},
-	{Label: "England", URL: "http://localhost:8086"},
-}
-
 type app struct {
-	js     jetstream.JetStream
-	stream jetstream.Stream
+	js jetstream.JetStream
 }
 
 func getEnv(key, fallback string) string {
@@ -156,10 +126,9 @@ func main() {
 			},
 		},
 	}
-	var stream jetstream.Stream
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		stream, err = js.CreateOrUpdateStream(ctx, cfg)
+		_, err = js.CreateOrUpdateStream(ctx, cfg)
 		cancel()
 		if err == nil {
 			break
@@ -207,18 +176,16 @@ func main() {
 		log.Printf("view stream %s ready", sr.localStream)
 	}
 
-	a := &app{js: js, stream: stream}
+	a := &app{js: js}
+
+	indexData, _ := staticFiles.ReadFile("static/index.html")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		data, _ := staticFiles.ReadFile("static/index.html")
-		tmpl := template.Must(template.New("index").Parse(string(data)))
 		w.Header().Set("Content-Type", "text/html")
-		_ = tmpl.Execute(w, pageConfig{NodeName: nodeName, Color: nodeColor, Title: nodeTitle, NavLinks: navLinks, ReadOnly: true})
+		w.Write(indexData)
 	})
 	mux.HandleFunc("GET /counters", a.handleCounters)
-	mux.HandleFunc("POST /hit/{node}/{amount}", a.handleHit)
-	mux.HandleFunc("POST /zero/{node}", a.handleZero)
 
 	addr := getEnv("HTTP_ADDR", ":8080")
 	log.Printf("listening %s", addr)
@@ -233,16 +200,6 @@ func valFromMsg(data []byte) string {
 		return "0"
 	}
 	return v.Val
-}
-
-func (a *app) readVal() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	msg, err := a.stream.GetLastMsgForSubject(ctx, subject)
-	if err != nil {
-		return "0"
-	}
-	return valFromMsg(msg.Data)
 }
 
 func (a *app) handleCounters(w http.ResponseWriter, r *http.Request) {
@@ -272,45 +229,3 @@ func (a *app) handleCounters(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *app) handleHit(w http.ResponseWriter, r *http.Request) {
-	amount, err := strconv.Atoi(r.PathValue("amount"))
-	if err != nil || amount <= 0 {
-		http.Error(w, "invalid amount", http.StatusBadRequest)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-	defer cancel()
-	ack, err := a.js.PublishMsg(ctx, &nats.Msg{
-		Subject: subject,
-		Header:  nats.Header{"Nats-Incr": {fmt.Sprintf("%+d", amount)}},
-	})
-	if err != nil {
-		log.Printf("increment: %v", err)
-		http.Error(w, "increment failed", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("hit: node=%s delta=%d val=%s", r.PathValue("node"), amount, ack.Value)
-	sse := datastar.NewSSE(w, r)
-	_ = sse.MarshalAndPatchSignals(map[string]any{signalName: ack.Value})
-}
-
-func (a *app) handleZero(w http.ResponseWriter, r *http.Request) {
-	current, err := strconv.Atoi(a.readVal())
-	if err != nil || current == 0 {
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-	defer cancel()
-	ack, err := a.js.PublishMsg(ctx, &nats.Msg{
-		Subject: subject,
-		Header:  nats.Header{"Nats-Incr": {fmt.Sprintf("%+d", -current)}},
-	})
-	if err != nil {
-		log.Printf("zero: %v", err)
-		http.Error(w, "zero failed", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("zero: node=%s delta=%d val=%s", r.PathValue("node"), -current, ack.Value)
-	sse := datastar.NewSSE(w, r)
-	_ = sse.MarshalAndPatchSignals(map[string]any{signalName: ack.Value})
-}

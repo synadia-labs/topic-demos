@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -44,8 +43,7 @@ var regions = []regionDef{
 }
 
 type app struct {
-	js         jetstream.JetStream
-	stream     jetstream.Stream
+	js          jetstream.JetStream
 	viewStreams map[string]jetstream.Stream
 }
 
@@ -132,10 +130,9 @@ func main() {
 			},
 		},
 	}
-	var stream jetstream.Stream
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		stream, err = js.CreateOrUpdateStream(ctx, cfg)
+		_, err = js.CreateOrUpdateStream(ctx, cfg)
 		cancel()
 		if err == nil {
 			break
@@ -176,18 +173,17 @@ func main() {
 		viewStreams[reg.signal] = vs
 	}
 
-	a := &app{js: js, stream: stream, viewStreams: viewStreams}
+	a := &app{js: js, viewStreams: viewStreams}
+
+	indexData, _ := staticFiles.ReadFile("static/index.html")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		data, _ := staticFiles.ReadFile("static/index.html")
-		w.Write(data)
+		w.Write(indexData)
 	})
 	mux.HandleFunc("GET /counters", a.handleCounters)
 	mux.HandleFunc("GET /breakdown", a.handleBreakdown)
-	mux.HandleFunc("POST /hit/{node}", a.handleIncrement(1))
-	mux.HandleFunc("POST /decrement/{node}", a.handleIncrement(-1))
 
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
@@ -205,30 +201,6 @@ func valFromMsg(data []byte) string {
 		return "0"
 	}
 	return v.Val
-}
-
-func (a *app) readVal() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	msg, err := a.stream.GetLastMsgForSubject(ctx, subject)
-	if err != nil {
-		return "0"
-	}
-	return valFromMsg(msg.Data)
-}
-
-func (a *app) readRegionVal(reg regionDef) string {
-	vs, ok := a.viewStreams[reg.signal]
-	if !ok {
-		return "0"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	msg, err := vs.GetLastMsgForSubject(ctx, reg.subject)
-	if err != nil {
-		return "0"
-	}
-	return valFromMsg(msg.Data)
 }
 
 func (a *app) handleCounters(w http.ResponseWriter, r *http.Request) {
@@ -302,27 +274,3 @@ func (a *app) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *app) handleIncrement(delta int) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-		defer cancel()
-
-		if delta < 0 && a.readVal() == "0" {
-			return
-		}
-
-		ack, err := a.js.PublishMsg(ctx, &nats.Msg{
-			Subject: subject,
-			Header:  nats.Header{"Nats-Incr": {fmt.Sprintf("%+d", delta)}},
-		})
-		if err != nil {
-			log.Printf("increment: %v", err)
-			http.Error(w, "increment failed", http.StatusInternalServerError)
-			return
-		}
-
-		log.Printf("hit: node=%s delta=%d val=%s", r.PathValue("node"), delta, ack.Value)
-		sse := datastar.NewSSE(w, r)
-		_ = sse.MarshalAndPatchSignals(map[string]any{signalName: ack.Value})
-	}
-}

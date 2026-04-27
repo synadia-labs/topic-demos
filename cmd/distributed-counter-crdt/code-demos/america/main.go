@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"text/template"
 	"time"
 
 	natssrv "github.com/nats-io/nats-server/v2/server"
@@ -27,29 +26,6 @@ const (
 	subject    = "count.america.hits"
 	streamName = "COUNTER_AMERICA"
 )
-
-var (
-	nodeName  = getEnv("NODE_NAME", "america")
-	nodeColor = getEnv("NODE_COLOR", "#3b82f6")
-	nodeTitle = getEnv("NODE_TITLE", "America")
-)
-
-type navLink struct {
-	Label string
-	URL   string
-}
-
-type pageConfig struct {
-	NodeName string
-	Color    string
-	Title    string
-	NavLinks []navLink
-	ReadOnly bool
-}
-
-var navLinks = []navLink{
-	{Label: "↑ Global", URL: "http://localhost:8081"},
-}
 
 type app struct {
 	js     jetstream.JetStream
@@ -143,12 +119,12 @@ func main() {
 
 	a := &app{js: js, stream: stream}
 
+	indexData, _ := staticFiles.ReadFile("static/index.html")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		data, _ := staticFiles.ReadFile("static/index.html")
-		tmpl := template.Must(template.New("index").Parse(string(data)))
 		w.Header().Set("Content-Type", "text/html")
-		_ = tmpl.Execute(w, pageConfig{NodeName: nodeName, Color: nodeColor, Title: nodeTitle, NavLinks: navLinks})
+		w.Write(indexData)
 	})
 	mux.HandleFunc("GET /counters", a.handleCounters)
 	mux.HandleFunc("POST /hit/{node}/{amount}", a.handleHit)

@@ -2,53 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{{.Title}} — NATS Counter CRDT</title>
+<title>Europe — NATS Counter CRDT</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js"></script>
 </head>
 <body class="bg-[#0a0a0a] text-white font-mono min-h-screen flex flex-col items-center justify-center"
-      style="--node-color: {{.Color}}; gap: 3rem;"
+      style="--node-color: #22c55e; gap: 3rem;"
       data-signals:hits="'0'"
       data-init="@get('/counters')">
 
 <div class="flex flex-col items-center border border-[#222] rounded-2xl" style="padding: 5rem 6rem; gap: 2rem;">
-  <div class="text-[#666]" style="font-size: 2.5rem;">{{.Title}}</div>
+  <div class="text-[#666]" style="font-size: 2.5rem;">Europe</div>
   <div class="font-bold tabular-nums" style="font-size: 16rem; line-height: 1; color: var(--node-color);" data-text="$hits">—</div>
-  {{if not .ReadOnly}}
-  <div class="flex" style="gap: 2rem; margin-top: 2rem;">
-    <button
-      class="text-white font-bold rounded-xl hover:opacity-80 active:scale-95 transition-all cursor-pointer"
-      style="background: var(--node-color); padding: 2rem 3.5rem; font-size: 3rem;"
-      data-on:click="@post('/hit/{{.NodeName}}/1')">
-      +1
-    </button>
-    <button
-      class="text-white font-bold rounded-xl hover:opacity-80 active:scale-95 transition-all cursor-pointer"
-      style="background: var(--node-color); padding: 2rem 3.5rem; font-size: 3rem;"
-      data-on:click="@post('/hit/{{.NodeName}}/10')">
-      +10
-    </button>
-    <button
-      class="text-white font-bold rounded-xl hover:opacity-80 active:scale-95 transition-all cursor-pointer"
-      style="background: var(--node-color); padding: 2rem 3.5rem; font-size: 3rem;"
-      data-on:click="@post('/hit/{{.NodeName}}/100')">
-      +100
-    </button>
-    <button
-      class="text-white font-bold rounded-xl hover:opacity-80 active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-      style="background: var(--node-color); padding: 2rem 3.5rem; font-size: 3rem;"
-      data-attr:disabled="$hits == '0'"
-      data-on:click="@post('/zero/{{.NodeName}}')">
-      0
-    </button>
-  </div>
-  {{end}}
-  {{if .NavLinks}}
   <div class="border-t border-[#222] flex flex-wrap justify-center" style="margin-top: 2rem; padding-top: 2rem; gap: 3rem;">
-    {{range .NavLinks}}<a href="{{.URL}}" class="text-[#555] hover:text-white transition-colors" style="font-size: 1.5rem;">{{.Label}}</a>
-    {{end}}
+    <a href="http://localhost:8081" class="text-[#555] hover:text-white transition-colors" style="font-size: 1.5rem;">↑ Global</a>
+    <a href="http://localhost:8084" class="text-[#555] hover:text-white transition-colors" style="font-size: 1.5rem;">Spain</a>
+    <a href="http://localhost:8085" class="text-[#555] hover:text-white transition-colors" style="font-size: 1.5rem;">France</a>
+    <a href="http://localhost:8086" class="text-[#555] hover:text-white transition-colors" style="font-size: 1.5rem;">England</a>
   </div>
-  {{end}}
 </div>
 
 </body>
