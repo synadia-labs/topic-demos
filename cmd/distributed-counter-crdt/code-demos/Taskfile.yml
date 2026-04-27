@@ -14,6 +14,42 @@ tasks:
     cmds:
       - docker compose down -v
 
+  compose:except-america:
+    desc: "Start all services except america (debug america locally)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build global asia europe spain france england
+
+  compose:except-asia:
+    desc: "Start all services except asia (debug asia locally)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build global america europe spain france england
+
+  compose:except-europe:
+    desc: "Start all services except europe (debug europe locally)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build global asia america spain france england
+
+  compose:except-spain:
+    desc: "Start all services except spain (debug spain locally)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build global asia america europe france england
+
+  compose:except-france:
+    desc: "Start all services except france (debug france locally)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build global asia america europe spain england
+
+  compose:except-england:
+    desc: "Start all services except england (debug england locally)"
+    dir: '{{.TASKFILE_DIR}}'
+    cmds:
+      - docker compose up --build global asia america europe spain france
+
   update-template:
     desc: "Copy template.html to all region static/index.html files"
     dir: '{{.TASKFILE_DIR}}'

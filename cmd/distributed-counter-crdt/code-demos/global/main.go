@@ -23,6 +23,7 @@ var staticFiles embed.FS
 const (
 	signalName = "globalHits"
 	subject    = "count.global.hits"
+	streamName = "COUNTER_GLOBAL"
 )
 
 type regionDef struct {
@@ -188,8 +189,22 @@ func main() {
 	mux.HandleFunc("POST /hit/{node}", a.handleIncrement(1))
 	mux.HandleFunc("POST /decrement/{node}", a.handleIncrement(-1))
 
-	log.Println("listening :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	addr := os.Getenv("HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	log.Printf("listening %s", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func valFromMsg(data []byte) string {
+	var v struct {
+		Val string `json:"val"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil || v.Val == "" {
+		return "0"
+	}
+	return v.Val
 }
 
 func (a *app) readVal() string {
@@ -199,13 +214,7 @@ func (a *app) readVal() string {
 	if err != nil {
 		return "0"
 	}
-	var v struct {
-		Val string `json:"val"`
-	}
-	if err := json.Unmarshal(msg.Data, &v); err != nil || v.Val == "" {
-		return "0"
-	}
-	return v.Val
+	return valFromMsg(msg.Data)
 }
 
 func (a *app) readRegionVal(reg regionDef) string {
@@ -219,73 +228,76 @@ func (a *app) readRegionVal(reg regionDef) string {
 	if err != nil {
 		return "0"
 	}
-	var v struct {
-		Val string `json:"val"`
-	}
-	if err := json.Unmarshal(msg.Data, &v); err != nil || v.Val == "" {
-		return "0"
-	}
-	return v.Val
+	return valFromMsg(msg.Data)
 }
 
 func (a *app) handleCounters(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
+	ctx := r.Context()
 
-	val := a.readVal()
-	_ = sse.MarshalAndPatchSignals(map[string]any{signalName: val})
-	prev := val
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	cons, err := a.js.OrderedConsumer(ctx, streamName, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{subject},
+		DeliverPolicy:  jetstream.DeliverLastPolicy,
+	})
+	if err != nil {
+		return
+	}
+	iter, err := cons.Messages()
+	if err != nil {
+		return
+	}
+	defer iter.Stop()
 
 	for {
-		select {
-		case <-r.Context().Done():
+		msg, err := iter.Next()
+		if err != nil {
 			return
-		case <-ticker.C:
-			newVal := a.readVal()
-			if newVal == prev {
-				continue
-			}
-			prev = newVal
-			_ = sse.MarshalAndPatchSignals(map[string]any{signalName: newVal})
 		}
+		msg.Ack()
+		_ = sse.MarshalAndPatchSignals(map[string]any{signalName: valFromMsg(msg.Data())})
 	}
 }
 
 func (a *app) handleBreakdown(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
+	ctx := r.Context()
 
-	prev := map[string]string{}
-	signals := map[string]any{}
+	type update struct{ signal, val string }
+	ch := make(chan update, len(regions))
+
 	for _, reg := range regions {
-		val := a.readRegionVal(reg)
-		signals[reg.signal] = val
-		prev[reg.signal] = val
+		if _, ok := a.viewStreams[reg.signal]; !ok {
+			continue
+		}
+		go func() {
+			cons, err := a.js.OrderedConsumer(ctx, reg.localStream, jetstream.OrderedConsumerConfig{
+				DeliverPolicy: jetstream.DeliverLastPolicy,
+			})
+			if err != nil {
+				return
+			}
+			iter, err := cons.Messages()
+			if err != nil {
+				return
+			}
+			defer iter.Stop()
+			for {
+				msg, err := iter.Next()
+				if err != nil {
+					return
+				}
+				msg.Ack()
+				ch <- update{reg.signal, valFromMsg(msg.Data())}
+			}
+		}()
 	}
-	_ = sse.MarshalAndPatchSignals(signals)
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			update := map[string]any{}
-			changed := false
-			for _, reg := range regions {
-				val := a.readRegionVal(reg)
-				if val != prev[reg.signal] {
-					update[reg.signal] = val
-					prev[reg.signal] = val
-					changed = true
-				}
-			}
-			if changed {
-				_ = sse.MarshalAndPatchSignals(update)
-			}
+		case u := <-ch:
+			_ = sse.MarshalAndPatchSignals(map[string]any{u.signal: u.val})
 		}
 	}
 }

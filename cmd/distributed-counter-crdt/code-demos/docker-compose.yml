@@ -3,6 +3,7 @@ services:
     build: ./global
     ports:
       - "8081:8080"
+      - "7422:7422"
     environment:
       - STORE_DIR=/data
     volumes:
@@ -46,6 +47,7 @@ services:
     build: ./europe
     ports:
       - "8083:8080"
+      - "7423:7422"
     environment:
       - LEAF_REMOTE_URL=nats://global:7422
       - STORE_DIR=/data

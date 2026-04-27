@@ -25,6 +25,7 @@ var staticFiles embed.FS
 const (
 	signalName = "hits"
 	subject    = "count.europe.hits"
+	streamName = "COUNTER_EUROPE"
 )
 
 var (
@@ -219,8 +220,19 @@ func main() {
 	mux.HandleFunc("POST /hit/{node}/{amount}", a.handleHit)
 	mux.HandleFunc("POST /zero/{node}", a.handleZero)
 
-	log.Println("listening :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	addr := getEnv("HTTP_ADDR", ":8080")
+	log.Printf("listening %s", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func valFromMsg(data []byte) string {
+	var v struct {
+		Val string `json:"val"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil || v.Val == "" {
+		return "0"
+	}
+	return v.Val
 }
 
 func (a *app) readVal() string {
@@ -230,37 +242,33 @@ func (a *app) readVal() string {
 	if err != nil {
 		return "0"
 	}
-	var v struct {
-		Val string `json:"val"`
-	}
-	if err := json.Unmarshal(msg.Data, &v); err != nil || v.Val == "" {
-		return "0"
-	}
-	return v.Val
+	return valFromMsg(msg.Data)
 }
 
 func (a *app) handleCounters(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
+	ctx := r.Context()
 
-	val := a.readVal()
-	_ = sse.MarshalAndPatchSignals(map[string]any{signalName: val})
-	prev := val
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	cons, err := a.js.OrderedConsumer(ctx, streamName, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{subject},
+		DeliverPolicy:  jetstream.DeliverLastPolicy,
+	})
+	if err != nil {
+		return
+	}
+	iter, err := cons.Messages()
+	if err != nil {
+		return
+	}
+	defer iter.Stop()
 
 	for {
-		select {
-		case <-r.Context().Done():
+		msg, err := iter.Next()
+		if err != nil {
 			return
-		case <-ticker.C:
-			newVal := a.readVal()
-			if newVal == prev {
-				continue
-			}
-			prev = newVal
-			_ = sse.MarshalAndPatchSignals(map[string]any{signalName: newVal})
 		}
+		msg.Ack()
+		_ = sse.MarshalAndPatchSignals(map[string]any{signalName: valFromMsg(msg.Data())})
 	}
 }
 
