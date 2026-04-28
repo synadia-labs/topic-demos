@@ -23,53 +23,55 @@ nats stream add COUNTER \
 nats stream info COUNTER --json | grep -E '"allow_(msg_counter|direct)"'
 ```
 
-### 3. Increment a counter
+### 3. Increment a counter (PubAck returns the new total)
 
 ```bash
-nats req counter.page.views "" -H "Nats-Incr:+1" --raw
+nats req counter.page.views "" -H "Nats-Incr:+1"
+# {"stream":"COUNTER","seq":1,"val":"1"}
 ```
 
 ### 4. Large increment (arbitrary precision)
 
 ```bash
-nats req counter.page.views "" -H "Nats-Incr:+999999999999999999" --raw
+nats req counter.page.views "" -H "Nats-Incr:+999999999999999999"
 ```
 
-### 5. Read the current total
+### 5. Read the stored state
 
 ```bash
-nats stream get COUNTER --last-for "counter.page.views"
+nats stream get COUNTER --last-for counter.page.views
 ```
 
 ### 6. Decrements and interleaved deltas
 
 ```bash
-nats req counter.page.views "" -H "Nats-Incr:-100" --raw
-nats req counter.page.views "" -H "Nats-Incr:+50" --raw
-nats req counter.page.views "" -H "Nats-Incr:-10" --raw
+nats req counter.page.views "" -H "Nats-Incr:-100"
+nats req counter.page.views "" -H "Nats-Incr:+50"
+nats req counter.page.views "" -H "Nats-Incr:-10"
+nats stream get COUNTER --last-for counter.page.views
 ```
 
 ### 7. Multiple independent subjects
 
 ```bash
-nats req counter.orders.placed "" -H "Nats-Incr:+1" --raw
-nats req counter.orders.placed "" -H "Nats-Incr:+1" --raw
-nats stream get COUNTER --last-for "counter.orders.placed"
+nats req counter.orders.placed "" -H "Nats-Incr:+1"
+nats req counter.orders.placed "" -H "Nats-Incr:+1"
+nats stream get COUNTER --last-for counter.orders.placed
 ```
 
 ### 8. Plain publish is rejected
 
 ```bash
-nats req counter.page.views "not a counter update" --raw
+nats req counter.page.views "not a counter update"
 ```
 
 ### 9. Reset with matching negative delta
 
 ```bash
-CURRENT=$(nats stream get COUNTER --last-for "counter.page.views" 2>&1 \
+CURRENT=$(nats stream get COUNTER --last-for counter.page.views 2>&1 \
   | grep -oE '"val":"[^"]+"' | tail -1 | cut -d'"' -f4)
-nats req counter.page.views "" -H "Nats-Incr:-$CURRENT" --raw
-nats stream get COUNTER --last-for "counter.page.views"
+nats req counter.page.views "" -H "Nats-Incr:-$CURRENT"
+nats stream get COUNTER --last-for counter.page.views
 ```
 
 ## Cleanup
