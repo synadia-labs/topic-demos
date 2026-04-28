@@ -129,7 +129,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write(indexData)
+		_, _ = w.Write(indexData)
 	})
 	mux.HandleFunc("GET /counters", a.handleCounters)
 	mux.HandleFunc("POST /hit/{node}/{amount}", a.handleHit)
@@ -184,7 +184,7 @@ func (a *app) handleCounters(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		msg.Ack()
+		_ = msg.Ack()
 		_ = sse.MarshalAndPatchSignals(map[string]any{signalName: valFromMsg(msg.Data())})
 	}
 }

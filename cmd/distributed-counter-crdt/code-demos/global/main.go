@@ -142,6 +142,37 @@ func main() {
 	}
 	log.Println("stream COUNTER_GLOBAL ready")
 
+	go func() {
+		cons, err := js.OrderedConsumer(context.Background(), streamName, jetstream.OrderedConsumerConfig{
+			FilterSubjects: []string{subject},
+			DeliverPolicy:  jetstream.DeliverNewPolicy,
+		})
+		if err != nil {
+			log.Printf("source logger consumer: %v", err)
+			return
+		}
+		iter, err := cons.Messages()
+		if err != nil {
+			log.Printf("source logger iter: %v", err)
+			return
+		}
+		for {
+			msg, err := iter.Next()
+			if err != nil {
+				return
+			}
+			msg.Ack()
+			val := valFromMsg(msg.Data())
+			if src := msg.Headers().Get("Nats-Stream-Source"); src != "" {
+				name, _, _ := strings.Cut(strings.SplitN(src, " ", 2)[0], ":")
+				log.Printf("[source] stream=%-20s val=%s", name, val)
+			}
+			if ncs := msg.Headers().Get("Nats-Counter-Sources"); ncs != "" {
+				log.Printf("[sources] %s", ncs)
+			}
+		}
+	}()
+
 	viewStreams := map[string]jetstream.Stream{}
 	for _, reg := range regions {
 		rcfg := jetstream.StreamConfig{

@@ -68,9 +68,8 @@ nats req counter.page.views "not a counter update"
 ### 9. Reset with matching negative delta
 
 ```bash
-CURRENT=$(nats stream get COUNTER --last-for counter.page.views 2>&1 \
-  | grep -oE '"val":"[^"]+"' | tail -1 | cut -d'"' -f4)
-nats req counter.page.views "" -H "Nats-Incr:-$CURRENT"
+nats stream get COUNTER --last-for counter.page.views
+nats req counter.page.views "" -H "Nats-Incr:-1000000000000000040"
 nats stream get COUNTER --last-for counter.page.views
 ```
 
