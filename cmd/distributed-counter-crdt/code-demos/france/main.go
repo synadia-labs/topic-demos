@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	natssrv "github.com/nats-io/nats-server/v2/server"
@@ -28,8 +29,12 @@ const (
 )
 
 type app struct {
-	js     jetstream.JetStream
-	stream jetstream.Stream
+	js          jetstream.JetStream
+	stream      jetstream.Stream
+	ns          *natssrv.Server
+	opts        *natssrv.Options
+	mu          sync.Mutex
+	partitioned bool
 }
 
 func getEnv(key, fallback string) string {
@@ -117,7 +122,7 @@ func main() {
 	}
 	log.Println("stream COUNTER_FRANCE ready")
 
-	a := &app{js: js, stream: stream}
+	a := &app{js: js, stream: stream, ns: ns, opts: opts}
 
 	indexData, _ := staticFiles.ReadFile("static/index.html")
 
@@ -129,6 +134,8 @@ func main() {
 	mux.HandleFunc("GET /counters", a.handleCounters)
 	mux.HandleFunc("POST /hit/{node}/{amount}", a.handleHit)
 	mux.HandleFunc("POST /zero/{node}", a.handleZero)
+	mux.HandleFunc("POST /partition", a.handlePartition)
+	mux.HandleFunc("POST /rejoin", a.handleRejoin)
 
 	addr := getEnv("HTTP_ADDR", ":8080")
 	log.Printf("listening %s", addr)
@@ -202,6 +209,36 @@ func (a *app) handleHit(w http.ResponseWriter, r *http.Request) {
 	log.Printf("hit: node=%s delta=%d val=%s", r.PathValue("node"), amount, ack.Value)
 	sse := datastar.NewSSE(w, r)
 	_ = sse.MarshalAndPatchSignals(map[string]any{signalName: ack.Value})
+}
+
+func (a *app) handlePartition(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	newOpts := *a.opts
+	newOpts.LeafNode = natssrv.LeafNodeOpts{
+		Remotes: []*natssrv.RemoteLeafOpts{{URLs: a.opts.LeafNode.Remotes[0].URLs, Disabled: true}},
+	}
+	if err := a.ns.ReloadOptions(&newOpts); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	a.partitioned = true
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *app) handleRejoin(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	newOpts := *a.opts
+	newOpts.LeafNode = natssrv.LeafNodeOpts{
+		Remotes: []*natssrv.RemoteLeafOpts{{URLs: a.opts.LeafNode.Remotes[0].URLs, Disabled: false}},
+	}
+	if err := a.ns.ReloadOptions(&newOpts); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	a.partitioned = false
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *app) handleZero(w http.ResponseWriter, r *http.Request) {
